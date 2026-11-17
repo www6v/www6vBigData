@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="
+  Spark优化
+  #
+
+
+  1. 数据倾斜处理
+  #
+
+把用户日志和用户表通过用户ID进行join，但是日志表有几亿条记录的用户ID是null，Hive把**null当作一个字段值shuffle到同一个Reduce，结果这个Reduce跑了两天也没跑完，SQL当然也执行不完。像这种情况的数据倾斜，因为null字段没有意义，所以可以在where条件里加一个userID != null过滤掉就可以了。
+
+  2. 配置参数优化。
+  #
+
+
+case1
+当时使用的这些服务器的CPU的核心数是48核，而应用配置的最大Executor数目是120，每台服务器30个任务，虽然30个任务在每个CPU核上都100%运行，但是总的CPU使用率仍只有60%多。
+
+具体优化也很简单，设置应用启动参数的Executor数为48×4=192即可。
+
+case2  spark和kafka的优化
+{% asset_img  spark-task-num.JPG  图一. 优化前,kafka的partition为3，spark的task数为3 %}
+{% asset_img  spark-task-num(kafka-partition增加到10后).JPG  图二.优化后,kafka的partition增加到10后，spark的task数为10 %}
+
+
+  3. MapReduce、Spark代码优化
+  #
+
+Spark公司内部培训
+
+  4. SQL语句优化
+  #
+
+典型的就是Hive的MapJoin语法，如果join的一张表比较小，比如只有几MB，那么就可以用MapJoin进行连接，Hive会将这张小表当作Cache数据全部加载到所有的Map任务中，在Map阶段完成join操作，无需shuffle。
+
+  5. 操作系统配置优化
+  #
+
+
+当transparent huge pages打开的时候，sys态CPU消耗就会增加，而不同Linux版本的transparent huge pages默认是否打开是不同的，对于默认打开transparent huge pages的Linux执行下面的指令，关闭transparent huge pages。
+
+
+  Spark优化
+  #
+
+
+
+Spark2.0 CBO
+spark.sql.cbo.enabled
+
+
+广播Join
+大表 Join 小表(&lt;10M)
+MapJoin - 规避shuffle
+强制广播
+
+
+SMB Join（sort merge bucket）
+大表 Join 大表
+分桶 - 分桶表join">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#343a40">
+<meta name="color-scheme" content="light dark"><meta property="og:url" content="https://www6v.github.io/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/spark/streamingSparkPerformance/streamingSparkPerformance/">
+  <meta property="og:site_name" content="BigData">
+  <meta property="og:title" content="Spark 性能优化">
+  <meta property="og:description" content="Spark优化 # 1. 数据倾斜处理 # 把用户日志和用户表通过用户ID进行join，但是日志表有几亿条记录的用户ID是null，Hive把**null当作一个字段值shuffle到同一个Reduce，结果这个Reduce跑了两天也没跑完，SQL当然也执行不完。像这种情况的数据倾斜，因为null字段没有意义，所以可以在where条件里加一个userID != null过滤掉就可以了。
+2. 配置参数优化。 # case1 当时使用的这些服务器的CPU的核心数是48核，而应用配置的最大Executor数目是120，每台服务器30个任务，虽然30个任务在每个CPU核上都100%运行，但是总的CPU使用率仍只有60%多。 具体优化也很简单，设置应用启动参数的Executor数为48×4=192即可。
+case2 spark和kafka的优化 {% asset_img spark-task-num.JPG 图一. 优化前,kafka的partition为3，spark的task数为3 %} {% asset_img spark-task-num(kafka-partition增加到10后).JPG 图二.优化后,kafka的partition增加到10后，spark的task数为10 %} 3. MapReduce、Spark代码优化 # Spark公司内部培训
+4. SQL语句优化 # 典型的就是Hive的MapJoin语法，如果join的一张表比较小，比如只有几MB，那么就可以用MapJoin进行连接，Hive会将这张小表当作Cache数据全部加载到所有的Map任务中，在Map阶段完成join操作，无需shuffle。
+5. 操作系统配置优化 # 当transparent huge pages打开的时候，sys态CPU消耗就会增加，而不同Linux版本的transparent huge pages默认是否打开是不同的，对于默认打开transparent huge pages的Linux执行下面的指令，关闭transparent huge pages。
+Spark优化 # Spark2.0 CBO spark.sql.cbo.enabled
+广播Join 大表 Join 小表(&lt;10M) MapJoin - 规避shuffle 强制广播
+SMB Join（sort merge bucket） 大表 Join 大表 分桶 - 分桶表join">
+  <meta property="og:locale" content="en">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="docs">
+    <meta property="article:published_time" content="2022-05-19T10:55:56+00:00">
+    <meta property="article:modified_time" content="2022-05-19T10:55:56+00:00">
+<title>Spark 性能优化 | BigData</title>
+<link rel="icon" href="/www6vBigData/favicon.png" >
+<link rel="manifest" href="/www6vBigData/manifest.json">
+<link rel="canonical" href="https://www6v.github.io/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/spark/streamingSparkPerformance/streamingSparkPerformance/">
+<link rel="stylesheet" href="/www6vBigData/book.min.3257a7ce7c061eb5dfc72257c356229b1470dc77ce9b982ac220c02542f9f04f.css" integrity="sha256-MlenznwGHrXfxyJXw1YimxRw3HfOm5gqwiDAJUL58E8=" crossorigin="anonymous">
+  <script defer src="/www6vBigData/fuse.min.js"></script>
+  <script defer src="/www6vBigData/en.search.min.f8a7dd1b44af8e792b1640b4592796256371b27575d508a7291a44d1867fe4dd.js" integrity="sha256-&#43;KfdG0SvjnkrFkC0WSeWJWNxsnV11QinKRpE0YZ/5N0=" crossorigin="anonymous"></script>
+<!--
+Made with Book Theme
+https://github.com/alex-shpak/hugo-book
+-->
+  
+</head>
+<body dir="ltr">
+  <input type="checkbox" class="hidden toggle" id="menu-control" />
+  <input type="checkbox" class="hidden toggle" id="toc-control" />
+  <main class="container flex">
+    <aside class="book-menu">
+      <div class="book-menu-content">
+        
+  <nav>
+<h2 class="book-brand">
+  <a class="flex align-center" href="/www6vBigData/"><span>BigData</span>
+  </a>
+</h2>
+
+
+<div class="book-search hidden">
+  <input type="text" id="book-search-input" placeholder="Search" aria-label="Search" maxlength="64" data-hotkeys="s/" />
+  <div class="book-search-spinner hidden"></div>
+  <ul id="book-search-results"></ul>
+</div>
+<script>document.querySelector(".book-search").classList.remove("hidden")</script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <span>存储</span>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/clickhouse/clickhouse/" class="">Clickhouse</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/elasticsearchModel/elasticsearchModel/" class="">Elasticsearch 数据模型Model</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/elasticsearchDistributed/elasticsearchDistributed/" class="">Elasticsearch 分布式集群</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/elasticsearch/elasticsearch/" class="">Elasticsearch基础(ES)</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/hbaselsmTree/" class="">HBase - LSM-Tree</a>
+  
+
+          
+  <ul>
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/hbaseHotkey/hbaseHotkey/" class="">HBase Hotkey-预分区和Rowkey设计</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/hbase/hbase/" class="">HBase总结</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/hdfs/hdfs/" class="">HDFS NameNode HA 解决方案</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/iceberg/iceberg/" class="">Iceberg</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/bigDataMetaMgt/bigDataMetaMgt/" class="">大数据 元数据管理</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/bigDataStorage/bigDataStorage/" class="">大数据存储</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <span>平台</span>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%B9%B3%E5%8F%B0/dataMiddlePlatform/dataMiddlePlatform/" class="">数据中台</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%B9%B3%E5%8F%B0/realtimeDataWarehouse/realtimeDataWarehouse/" class="">实时数仓</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%B9%B3%E5%8F%B0/userBehaviorAnalysis/userBehaviorAnalysis/" class="">用户行为分析</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%B9%B3%E5%8F%B0/olap/olap/" class="">OLAP 在线分析处理</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%B9%B3%E5%8F%B0/personProflie/personProflie/" class="">用户画像</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <span>流处理</span>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-129963ccbcaf9f89af9933fb9ceb4177" class="toggle"  />
+    <label for="section-129963ccbcaf9f89af9933fb9ceb4177" class="flex justify-between">
+      <a role="button" class="">flink</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-ada2c9902e68e00a531e4770ffef7b64" class="toggle"  />
+    <label for="section-ada2c9902e68e00a531e4770ffef7b64" class="flex justify-between">
+      <a role="button" class="">basic</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/basic/streamingFlink/streamingFlink/" class="">Flink 总结</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/basic/streamingFlinkDeploy/streamingFlinkDeploy/" class="">Flink-部署方式</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/basic/streamingFlinkWatermarkWindow/streamingFlinkWatermarkWindow/" class="">Flink-Watermark &amp; Window</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/basic/streamingFlinkWindow/streamingFlinkWindow/" class="">Flink-Window</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-f477ba36d0f616c3560953c3b268a053" class="toggle"  />
+    <label for="section-f477ba36d0f616c3560953c3b268a053" class="flex justify-between">
+      <a role="button" class="">checkpoint</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/checkpoint/streamingFlinkCheckpoint/streamingFlinkCheckpoint/" class="">Flink Checkpoint-分布式快照方法</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/checkpoint/streamingFlinkExactlyOnce/streamingFlinkExactlyOnce/" class="">Flink 端到端Exactly-once</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-a27bba4e321fb1c08bc427a71b02e921" class="toggle"  />
+    <label for="section-a27bba4e321fb1c08bc427a71b02e921" class="flex justify-between">
+      <a role="button" class="">table</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/table/flinkSQL/flinkSQL/" class="">Flink SQL</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/table/streamingFlinkJoin/streamingFlinkJoin/" class="">Flink 双流Join</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-a58bdc3d55a6647d3ee5db4eebda3ede" class="toggle" checked />
+    <label for="section-a58bdc3d55a6647d3ee5db4eebda3ede" class="flex justify-between">
+      <a role="button" class="">spark</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/spark/streamingSpark/streamingSpark/" class="">Spark 总结</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/spark/streamingSparkPerformance/streamingSparkPerformance/" class="active">Spark 性能优化</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/spark/streamingSparkTrain/streamingSparkTrain/" class="">Spark公司内部培训</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/streamingSummary/" class="">流处理 汇总</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-b7b82f06ea24ff048253cfa5c188eefc" class="toggle"  />
+    <label for="section-b7b82f06ea24ff048253cfa5c188eefc" class="flex justify-between">
+      <a role="button" class="">beam</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/beam/streamingBeam/streamingBeam/" class="">流计算-Beam</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-b03a0dc28f0cbb5f185b29b82755ca26" class="toggle"  />
+    <label for="section-b03a0dc28f0cbb5f185b29b82755ca26" class="flex justify-between">
+      <a role="button" class="">批流一体</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/%E6%89%B9%E6%B5%81%E4%B8%80%E4%BD%93/streamingBatchIntegration/streamingBatchIntegration/" class="">批流一体</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-f75b35bf536d55171bd7d27d8e8e7f9b" class="toggle"  />
+    <label for="section-f75b35bf536d55171bd7d27d8e8e7f9b" class="flex justify-between">
+      <a role="button" class="">总结</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/%E6%80%BB%E7%BB%93/streamComputing/streamComputing/" class="">流式计算[Flink Beam Spark]</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-4aaad8797d62c776cf1cc5c6aff46c71" class="toggle"  />
+    <label for="section-4aaad8797d62c776cf1cc5c6aff46c71" class="flex justify-between">
+      <a role="button" class="">《Streaming System》</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/streamingSystem/streamingSystemChapter1/streamingSystemChapter1/" class="">《Streaming System》- 第一章：流处理入门[完整]</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/streamingSystem/streamingSystemChapter2/streamingSystemChapter2/" class="">《Streaming System》-第二章： 数据处理的什么、何地、何时以及如何进行[完整]</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/streamingSystem/streamingSystemChapter3/streamingSystemChapter3/" class="">《Streaming System》-第三章：水位线[完整]</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/streamingSystem/streamingSystemChapter4/streamingSystemChapter4/" class="">《Streaming System》-第四章：高级窗口 [完整]</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/streamingSystem/streamingSystemChapter5/streamingSystemChapter5/" class="">《Streaming System》-第五章：精确一次和副作用 [完整]</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <span>计算</span>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E8%AE%A1%E7%AE%97/bigDataComputing/bigDataComputing/" class="">大数据 计算Computing</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E8%AE%A1%E7%AE%97/bigDataSchedule/bigDataSchedule/" class="">大数据 调度</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/bigDataSummary/" class="">大数据  汇总</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</nav>
+
+
+
+
+  <script>(function(){var e=document.querySelector("aside .book-menu-content");addEventListener("beforeunload",function(){localStorage.setItem("menu.scrollTop",e.scrollTop)}),e.scrollTop=localStorage.getItem("menu.scrollTop")})()</script>
+
+
+ 
+      </div>
+    </aside>
+
+    <div class="book-page">
+      <header class="book-header">
+        
+  <div class="flex align-center justify-between">
+  <label for="menu-control">
+    <img src="/www6vBigData/svg/menu.svg" class="book-icon" alt="Menu" />
+  </label>
+
+  <h3>Spark 性能优化</h3>
+
+  <label for="toc-control">
+    
+    <img src="/www6vBigData/svg/toc.svg" class="book-icon" alt="Table of Contents" />
+    
+  </label>
+</div>
+
+
+  
+  <aside class="hidden clearfix">
+    
+  
+<nav id="TableOfContents">
+  <ul>
+    <li>
+      <ul>
+        <li><a href="#spark优化">Spark优化</a>
+          <ul>
+            <li><a href="#1-数据倾斜处理">1. 数据倾斜处理</a></li>
+            <li><a href="#2-配置参数优化">2. 配置参数优化。</a></li>
+            <li><a href="#3-mapreducespark代码优化">3. MapReduce、Spark代码优化</a></li>
+            <li><a href="#4-sql语句优化">4. SQL语句优化</a></li>
+            <li><a href="#5-操作系统配置优化">5. 操作系统配置优化</a></li>
+          </ul>
+        </li>
+        <li><a href="#spark优化-1">Spark优化</a></li>
+        <li><a href="#参考">参考：</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+
+
+
+  </aside>
+  
+ 
+      </header>
+
+      
+      
+  <article class="markdown book-article"><h2 id="spark优化">
+  Spark优化
+  <a class="anchor" href="#spark%e4%bc%98%e5%8c%96">#</a>
+</h2>
+<h3 id="1-数据倾斜处理">
+  1. 数据倾斜处理
+  <a class="anchor" href="#1-%e6%95%b0%e6%8d%ae%e5%80%be%e6%96%9c%e5%a4%84%e7%90%86">#</a>
+</h3>
+<p>把用户日志和用户表通过用户ID进行join，但是日志表有几亿条记录的<strong>用户ID是null</strong>，Hive把**null当作一个字段值shuffle到同一个Reduce，结果这个Reduce跑了两天也没跑完，SQL当然也执行不完。像这种情况的数据倾斜，因为null字段没有意义，<strong>所以可以在where条件里加一个userID != null过滤掉就可以了</strong>。</p>
+<h3 id="2-配置参数优化">
+  2. 配置参数优化。
+  <a class="anchor" href="#2-%e9%85%8d%e7%bd%ae%e5%8f%82%e6%95%b0%e4%bc%98%e5%8c%96">#</a>
+</h3>
+<ul>
+<li>case1
+当时使用的这些服务器的CPU的核心数是48核，而应用配置的最大Executor数目是120，每台服务器30个任务，虽然30个任务在每个CPU核上都100%运行，但是总的CPU使用率仍只有60%多。</li>
+</ul>
+<p>具体优化也很简单，设置应用启动参数的Executor数为48×4=192即可。</p>
+<ul>
+<li>case2  spark和kafka的优化
+{% asset_img  spark-task-num.JPG  图一. 优化前,kafka的partition为3，spark的task数为3 %}
+{% asset_img  spark-task-num(kafka-partition增加到10后).JPG  图二.优化后,kafka的partition增加到10后，spark的task数为10 %}</li>
+</ul>
+<h3 id="3-mapreducespark代码优化">
+  3. MapReduce、Spark代码优化
+  <a class="anchor" href="#3-mapreducespark%e4%bb%a3%e7%a0%81%e4%bc%98%e5%8c%96">#</a>
+</h3>
+<p><a href="https://www6v.github.io/www6vHomeHexo/2019/03/10/sparkTrain/sparkTrain.pptx">Spark公司内部培训</a></p>
+<h3 id="4-sql语句优化">
+  4. SQL语句优化
+  <a class="anchor" href="#4-sql%e8%af%ad%e5%8f%a5%e4%bc%98%e5%8c%96">#</a>
+</h3>
+<p>典型的就是Hive的<strong>MapJoin</strong>语法，如果join的一张表比较小，比如只有几MB，那么就可以用MapJoin进行连接，Hive会将这张小表当作Cache数据全部加载到所有的Map任务中，在Map阶段完成join操作，无需shuffle。</p>
+<h3 id="5-操作系统配置优化">
+  5. 操作系统配置优化
+  <a class="anchor" href="#5-%e6%93%8d%e4%bd%9c%e7%b3%bb%e7%bb%9f%e9%85%8d%e7%bd%ae%e4%bc%98%e5%8c%96">#</a>
+</h3>
+<blockquote>
+<p>当transparent huge pages打开的时候，sys态CPU消耗就会增加，而不同Linux版本的transparent huge pages默认是否打开是不同的，对于默认打开transparent huge pages的Linux执行下面的指令，关闭transparent huge pages。</p>
+</blockquote>
+<h2 id="spark优化-1">
+  Spark优化
+  <a class="anchor" href="#spark%e4%bc%98%e5%8c%96-1">#</a>
+</h2>
+<ul>
+<li>
+<p>Spark2.0 CBO
+spark.sql.cbo.enabled</p>
+</li>
+<li>
+<p>广播Join
+大表 Join 小表(&lt;10M)
+MapJoin - 规避shuffle
+强制广播</p>
+</li>
+<li>
+<p>SMB Join（sort merge bucket）
+大表 Join 大表
+分桶 - 分桶表join</p>
+</li>
+<li>
+<p>数据倾斜 - 单表数据倾斜
+产生原因： groupby 产生 shuffle<br>
+spark sql 自己的优化 - hashAggrartaion预聚合
+解决方案： 二次聚合（加随机数打散）</p>
+</li>
+<li>
+<p>拆分大key，打散大表， 扩容小表
+A表（有大key的表） - A1表（有大key），A2表
+B表（小表）
+方案：
+A1表 的key加随机数 ”Join“ B1表（key加随机数）
+A2表 ”Join“ B表</p>
+</li>
+</ul>
+<h2 id="参考">
+  参考：
+  <a class="anchor" href="#%e5%8f%82%e8%80%83">#</a>
+</h2>
+<ol start="5">
+<li><a href="">从0开始学大数据 - Spark的性能优化案例分析（上）</a>  李智慧</li>
+<li><a href="">从0开始学大数据 - Spark的性能优化案例分析（下）</a>  李智慧
+bilibili - 尚硅谷-大数据Spark3.0调优</li>
+</ol>
+</article>
+ 
+      
+
+      <footer class="book-footer">
+        
+  <div class="flex flex-wrap justify-between">
+
+
+
+
+
+</div>
+
+
+
+  <script>(function(){function e(e){const t=window.getSelection(),n=document.createRange();n.selectNodeContents(e),t.removeAllRanges(),t.addRange(n)}document.querySelectorAll("pre code").forEach(t=>{t.addEventListener("click",function(){if(window.getSelection().toString())return;e(t.parentElement),navigator.clipboard&&navigator.clipboard.writeText(t.parentElement.textContent)})})})()</script>
+
+
+ 
+        
+      </footer>
+
+      
+  
+  <div class="book-comments">
+
+</div>
+  
+ 
+
+      <label for="menu-control" class="hidden book-menu-overlay"></label>
+    </div>
+
+    
+    <aside class="book-toc">
+      <div class="book-toc-content">
+        
+  
+<nav id="TableOfContents">
+  <ul>
+    <li>
+      <ul>
+        <li><a href="#spark优化">Spark优化</a>
+          <ul>
+            <li><a href="#1-数据倾斜处理">1. 数据倾斜处理</a></li>
+            <li><a href="#2-配置参数优化">2. 配置参数优化。</a></li>
+            <li><a href="#3-mapreducespark代码优化">3. MapReduce、Spark代码优化</a></li>
+            <li><a href="#4-sql语句优化">4. SQL语句优化</a></li>
+            <li><a href="#5-操作系统配置优化">5. 操作系统配置优化</a></li>
+          </ul>
+        </li>
+        <li><a href="#spark优化-1">Spark优化</a></li>
+        <li><a href="#参考">参考：</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+
+
+ 
+      </div>
+    </aside>
+    
+  </main>
+
+  
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+

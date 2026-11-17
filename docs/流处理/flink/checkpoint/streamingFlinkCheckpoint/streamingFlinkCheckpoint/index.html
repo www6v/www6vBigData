@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="
+  原理 [1]
+  #
+
+
+  CheckPoint的保存
+  #
+
+当所有任务都恰好处理完一个相同的输入数据的时候，将它们的状态保存下来
+
+  从CheckPoint恢复状态
+  #
+
+（1）重启应用
+（2）读取检查点，重置状态
+（3）重放数据
+重置偏移量
+（4）继续处理数据
+
+  CheckPoint 算法
+  #
+
+
+
+检查点的“分界线”（Checkpoint Barrier）
+watermark 指示的是“之前的数据全部到齐了”，而 barrier 指示的是“之前所有数据的状
+态更改保存入当前检查点”：它们都是一个“截止时间”的标志。
+
+
+分布式快照算法
+
+Flink 使用了 Chandy-Lamport 算法的一种变体，被称为**“异步分界线快照” (asynchronous barrier snapshotting)算法**。
+算法的核心两个原则:
+
+当上游任务向多个并行下游任务发送** barrier** 时，需要广播出去;
+而当多个上游任务向同一个下游任务传递 barrier 时， 需要在下游任务执行**“分界线对齐”(barrier alignment)**操作，也就是需要等到所有并行分区 的 barrier 都到齐，才可以开始状态的保存。
+
+
+
+
+
+
+  原理 [5]
+  #
+
+
+  分布式场景的状态容错
+  #
+
+Flink 分布式场景的作业拓扑是有向无环并且是弱联通图。可以采用裁剪的Chandy-Lamport，记录所有输入的offset和各个算子状态，依赖 rewinding source 从而不需要存储 channel 的状态。这在存在聚合逻辑的情况下可以节省大量的存储空间。
+最后做恢复，恢复就是把数据源的位置重新设定，然后每一个算子都从检查点恢复状态。
+
+  Flink 的分布式快照方法
+  #
+
+首先在源数据流里插入Checkpoint barrier，也就是上文提到的Chandy-Lamport算法里的marker message，不同的Checkpoint barrier会把流自然地切分多个段，每个段都包含了Checkpoint的数据；">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#343a40">
+<meta name="color-scheme" content="light dark"><meta property="og:url" content="https://www6v.github.io/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/checkpoint/streamingFlinkCheckpoint/streamingFlinkCheckpoint/">
+  <meta property="og:site_name" content="BigData">
+  <meta property="og:title" content="Flink Checkpoint-分布式快照方法">
+  <meta property="og:description" content="原理 [1] # CheckPoint的保存 # 当所有任务都恰好处理完一个相同的输入数据的时候，将它们的状态保存下来
+从CheckPoint恢复状态 # （1）重启应用 （2）读取检查点，重置状态 （3）重放数据 重置偏移量 （4）继续处理数据
+CheckPoint 算法 # 检查点的“分界线”（Checkpoint Barrier） watermark 指示的是“之前的数据全部到齐了”，而 barrier 指示的是“之前所有数据的状 态更改保存入当前检查点”：它们都是一个“截止时间”的标志。
+分布式快照算法
+Flink 使用了 Chandy-Lamport 算法的一种变体，被称为**“异步分界线快照” (asynchronous barrier snapshotting)算法**。 算法的核心两个原则: 当上游任务向多个并行下游任务发送** barrier** 时，需要广播出去; 而当多个上游任务向同一个下游任务传递 barrier 时， 需要在下游任务执行**“分界线对齐”(barrier alignment)**操作，也就是需要等到所有并行分区 的 barrier 都到齐，才可以开始状态的保存。 原理 [5] # 分布式场景的状态容错 # Flink 分布式场景的作业拓扑是有向无环并且是弱联通图。可以采用裁剪的Chandy-Lamport，记录所有输入的offset和各个算子状态，依赖 rewinding source 从而不需要存储 channel 的状态。这在存在聚合逻辑的情况下可以节省大量的存储空间。
+最后做恢复，恢复就是把数据源的位置重新设定，然后每一个算子都从检查点恢复状态。
+Flink 的分布式快照方法 # 首先在源数据流里插入Checkpoint barrier，也就是上文提到的Chandy-Lamport算法里的marker message，不同的Checkpoint barrier会把流自然地切分多个段，每个段都包含了Checkpoint的数据；">
+  <meta property="og:locale" content="en">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="docs">
+    <meta property="article:published_time" content="2022-02-03T21:31:11+00:00">
+    <meta property="article:modified_time" content="2022-02-03T21:31:11+00:00">
+<title>Flink Checkpoint-分布式快照方法 | BigData</title>
+<link rel="icon" href="/www6vBigData/favicon.png" >
+<link rel="manifest" href="/www6vBigData/manifest.json">
+<link rel="canonical" href="https://www6v.github.io/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/checkpoint/streamingFlinkCheckpoint/streamingFlinkCheckpoint/">
+<link rel="stylesheet" href="/www6vBigData/book.min.3257a7ce7c061eb5dfc72257c356229b1470dc77ce9b982ac220c02542f9f04f.css" integrity="sha256-MlenznwGHrXfxyJXw1YimxRw3HfOm5gqwiDAJUL58E8=" crossorigin="anonymous">
+  <script defer src="/www6vBigData/fuse.min.js"></script>
+  <script defer src="/www6vBigData/en.search.min.f8a7dd1b44af8e792b1640b4592796256371b27575d508a7291a44d1867fe4dd.js" integrity="sha256-&#43;KfdG0SvjnkrFkC0WSeWJWNxsnV11QinKRpE0YZ/5N0=" crossorigin="anonymous"></script>
+<!--
+Made with Book Theme
+https://github.com/alex-shpak/hugo-book
+-->
+  
+</head>
+<body dir="ltr">
+  <input type="checkbox" class="hidden toggle" id="menu-control" />
+  <input type="checkbox" class="hidden toggle" id="toc-control" />
+  <main class="container flex">
+    <aside class="book-menu">
+      <div class="book-menu-content">
+        
+  <nav>
+<h2 class="book-brand">
+  <a class="flex align-center" href="/www6vBigData/"><span>BigData</span>
+  </a>
+</h2>
+
+
+<div class="book-search hidden">
+  <input type="text" id="book-search-input" placeholder="Search" aria-label="Search" maxlength="64" data-hotkeys="s/" />
+  <div class="book-search-spinner hidden"></div>
+  <ul id="book-search-results"></ul>
+</div>
+<script>document.querySelector(".book-search").classList.remove("hidden")</script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <span>存储</span>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/clickhouse/clickhouse/" class="">Clickhouse</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/elasticsearchModel/elasticsearchModel/" class="">Elasticsearch 数据模型Model</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/elasticsearchDistributed/elasticsearchDistributed/" class="">Elasticsearch 分布式集群</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/elasticsearch/elasticsearch/" class="">Elasticsearch基础(ES)</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/hbaselsmTree/" class="">HBase - LSM-Tree</a>
+  
+
+          
+  <ul>
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/hbaseHotkey/hbaseHotkey/" class="">HBase Hotkey-预分区和Rowkey设计</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/hbase/hbase/" class="">HBase总结</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/hdfs/hdfs/" class="">HDFS NameNode HA 解决方案</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/iceberg/iceberg/" class="">Iceberg</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/bigDataMetaMgt/bigDataMetaMgt/" class="">大数据 元数据管理</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%AD%98%E5%82%A8/bigDataStorage/bigDataStorage/" class="">大数据存储</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <span>平台</span>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%B9%B3%E5%8F%B0/dataMiddlePlatform/dataMiddlePlatform/" class="">数据中台</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%B9%B3%E5%8F%B0/realtimeDataWarehouse/realtimeDataWarehouse/" class="">实时数仓</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%B9%B3%E5%8F%B0/userBehaviorAnalysis/userBehaviorAnalysis/" class="">用户行为分析</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%B9%B3%E5%8F%B0/olap/olap/" class="">OLAP 在线分析处理</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E5%B9%B3%E5%8F%B0/personProflie/personProflie/" class="">用户画像</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <span>流处理</span>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-129963ccbcaf9f89af9933fb9ceb4177" class="toggle" checked />
+    <label for="section-129963ccbcaf9f89af9933fb9ceb4177" class="flex justify-between">
+      <a role="button" class="">flink</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-ada2c9902e68e00a531e4770ffef7b64" class="toggle"  />
+    <label for="section-ada2c9902e68e00a531e4770ffef7b64" class="flex justify-between">
+      <a role="button" class="">basic</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/basic/streamingFlink/streamingFlink/" class="">Flink 总结</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/basic/streamingFlinkDeploy/streamingFlinkDeploy/" class="">Flink-部署方式</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/basic/streamingFlinkWatermarkWindow/streamingFlinkWatermarkWindow/" class="">Flink-Watermark &amp; Window</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/basic/streamingFlinkWindow/streamingFlinkWindow/" class="">Flink-Window</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-f477ba36d0f616c3560953c3b268a053" class="toggle" checked />
+    <label for="section-f477ba36d0f616c3560953c3b268a053" class="flex justify-between">
+      <a role="button" class="">checkpoint</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/checkpoint/streamingFlinkCheckpoint/streamingFlinkCheckpoint/" class="active">Flink Checkpoint-分布式快照方法</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/checkpoint/streamingFlinkExactlyOnce/streamingFlinkExactlyOnce/" class="">Flink 端到端Exactly-once</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-a27bba4e321fb1c08bc427a71b02e921" class="toggle"  />
+    <label for="section-a27bba4e321fb1c08bc427a71b02e921" class="flex justify-between">
+      <a role="button" class="">table</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/table/flinkSQL/flinkSQL/" class="">Flink SQL</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/flink/table/streamingFlinkJoin/streamingFlinkJoin/" class="">Flink 双流Join</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-a58bdc3d55a6647d3ee5db4eebda3ede" class="toggle"  />
+    <label for="section-a58bdc3d55a6647d3ee5db4eebda3ede" class="flex justify-between">
+      <a role="button" class="">spark</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/spark/streamingSpark/streamingSpark/" class="">Spark 总结</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/spark/streamingSparkPerformance/streamingSparkPerformance/" class="">Spark 性能优化</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/spark/streamingSparkTrain/streamingSparkTrain/" class="">Spark公司内部培训</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/streamingSummary/" class="">流处理 汇总</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-b7b82f06ea24ff048253cfa5c188eefc" class="toggle"  />
+    <label for="section-b7b82f06ea24ff048253cfa5c188eefc" class="flex justify-between">
+      <a role="button" class="">beam</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/beam/streamingBeam/streamingBeam/" class="">流计算-Beam</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-b03a0dc28f0cbb5f185b29b82755ca26" class="toggle"  />
+    <label for="section-b03a0dc28f0cbb5f185b29b82755ca26" class="flex justify-between">
+      <a role="button" class="">批流一体</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/%E6%89%B9%E6%B5%81%E4%B8%80%E4%BD%93/streamingBatchIntegration/streamingBatchIntegration/" class="">批流一体</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-f75b35bf536d55171bd7d27d8e8e7f9b" class="toggle"  />
+    <label for="section-f75b35bf536d55171bd7d27d8e8e7f9b" class="flex justify-between">
+      <a role="button" class="">总结</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/%E6%80%BB%E7%BB%93/streamComputing/streamComputing/" class="">流式计算[Flink Beam Spark]</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <input type="checkbox" id="section-4aaad8797d62c776cf1cc5c6aff46c71" class="toggle"  />
+    <label for="section-4aaad8797d62c776cf1cc5c6aff46c71" class="flex justify-between">
+      <a role="button" class="">《Streaming System》</a>
+    </label>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/streamingSystem/streamingSystemChapter1/streamingSystemChapter1/" class="">《Streaming System》- 第一章：流处理入门[完整]</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/streamingSystem/streamingSystemChapter2/streamingSystemChapter2/" class="">《Streaming System》-第二章： 数据处理的什么、何地、何时以及如何进行[完整]</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/streamingSystem/streamingSystemChapter3/streamingSystemChapter3/" class="">《Streaming System》-第三章：水位线[完整]</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/streamingSystem/streamingSystemChapter4/streamingSystemChapter4/" class="">《Streaming System》-第四章：高级窗口 [完整]</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E6%B5%81%E5%A4%84%E7%90%86/streamingSystem/streamingSystemChapter5/streamingSystemChapter5/" class="">《Streaming System》-第五章：精确一次和副作用 [完整]</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <span>计算</span>
+  
+
+          
+  <ul>
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E8%AE%A1%E7%AE%97/bigDataComputing/bigDataComputing/" class="">大数据 计算Computing</a>
+  
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/%E8%AE%A1%E7%AE%97/bigDataSchedule/bigDataSchedule/" class="">大数据 调度</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+        </li>
+      
+    
+      
+        <li>
+          
+  
+  
+
+  
+    <a href="/www6vBigData/docs/bigDataSummary/" class="">大数据  汇总</a>
+  
+
+        </li>
+      
+    
+  </ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</nav>
+
+
+
+
+  <script>(function(){var e=document.querySelector("aside .book-menu-content");addEventListener("beforeunload",function(){localStorage.setItem("menu.scrollTop",e.scrollTop)}),e.scrollTop=localStorage.getItem("menu.scrollTop")})()</script>
+
+
+ 
+      </div>
+    </aside>
+
+    <div class="book-page">
+      <header class="book-header">
+        
+  <div class="flex align-center justify-between">
+  <label for="menu-control">
+    <img src="/www6vBigData/svg/menu.svg" class="book-icon" alt="Menu" />
+  </label>
+
+  <h3>Flink Checkpoint-分布式快照方法</h3>
+
+  <label for="toc-control">
+    
+    <img src="/www6vBigData/svg/toc.svg" class="book-icon" alt="Table of Contents" />
+    
+  </label>
+</div>
+
+
+  
+  <aside class="hidden clearfix">
+    
+  
+<nav id="TableOfContents">
+  <ul>
+    <li><a href="#原理-1">原理 [1]</a>
+      <ul>
+        <li>
+          <ul>
+            <li><a href="#checkpoint的保存">CheckPoint的保存</a></li>
+            <li><a href="#从checkpoint恢复状态">从CheckPoint恢复状态</a></li>
+            <li><a href="#checkpoint-算法">CheckPoint 算法</a></li>
+          </ul>
+        </li>
+      </ul>
+    </li>
+    <li><a href="#原理-5">原理 [5]</a>
+      <ul>
+        <li>
+          <ul>
+            <li><a href="#分布式场景的状态容错">分布式场景的状态容错</a></li>
+            <li><a href="#flink-的分布式快照方法">Flink 的分布式快照方法</a></li>
+          </ul>
+        </li>
+      </ul>
+    </li>
+    <li><a href="#实践">实践</a>
+      <ul>
+        <li>
+          <ul>
+            <li><a href="#api-2-3">API [2] [3]</a></li>
+            <li><a href="#使用经验4n-ai">使用经验[4][N AI]</a></li>
+          </ul>
+        </li>
+      </ul>
+    </li>
+    <li><a href="#参考">参考</a></li>
+  </ul>
+</nav>
+
+
+
+  </aside>
+  
+ 
+      </header>
+
+      
+      
+  <article class="markdown book-article"><h1 id="原理-1">
+  原理 [1]
+  <a class="anchor" href="#%e5%8e%9f%e7%90%86-1">#</a>
+</h1>
+<h3 id="checkpoint的保存">
+  CheckPoint的保存
+  <a class="anchor" href="#checkpoint%e7%9a%84%e4%bf%9d%e5%ad%98">#</a>
+</h3>
+<p><strong>当所有任务都恰好处理完一个相同的输入数据的时候，将它们的状态保存下来</strong></p>
+<h3 id="从checkpoint恢复状态">
+  从CheckPoint恢复状态
+  <a class="anchor" href="#%e4%bb%8echeckpoint%e6%81%a2%e5%a4%8d%e7%8a%b6%e6%80%81">#</a>
+</h3>
+<p>（1）重启应用
+（2）<strong>读取检查点，重置状态</strong>
+（3）<strong>重放数据</strong>
+重置偏移量
+（4）继续处理数据</p>
+<h3 id="checkpoint-算法">
+  CheckPoint 算法
+  <a class="anchor" href="#checkpoint-%e7%ae%97%e6%b3%95">#</a>
+</h3>
+<ul>
+<li>
+<p>检查点的“分界线”（Checkpoint Barrier）
+watermark 指示的是“之前的数据全部到齐了”，而 barrier 指示的是“之前所有数据的状
+态更改保存入当前检查点”：它们都是一个“截止时间”的标志。</p>
+</li>
+<li>
+<p>分布式快照算法</p>
+<ul>
+<li>Flink 使用了 Chandy-Lamport 算法的一种变体，被称为**“异步分界线快照” (asynchronous barrier snapshotting)算法**。</li>
+<li>算法的核心两个原则:
+<ol>
+<li>当上游任务向多个并行下游任务发送** barrier** 时，需要广播出去;</li>
+<li>而当多个上游任务向同一个下游任务传递 barrier 时， 需要在下游任务执行**“分界线对齐”(barrier alignment)**操作，也就是需要等到所有并行分区 的 barrier 都到齐，才可以开始状态的保存。</li>
+</ol>
+</li>
+</ul>
+</li>
+</ul>
+<h1 id="原理-5">
+  原理 [5]
+  <a class="anchor" href="#%e5%8e%9f%e7%90%86-5">#</a>
+</h1>
+<h3 id="分布式场景的状态容错">
+  分布式场景的状态容错
+  <a class="anchor" href="#%e5%88%86%e5%b8%83%e5%bc%8f%e5%9c%ba%e6%99%af%e7%9a%84%e7%8a%b6%e6%80%81%e5%ae%b9%e9%94%99">#</a>
+</h3>
+<p>Flink 分布式场景的作业拓扑是<strong>有向无环并且是弱联通图</strong>。可以<strong>采用裁剪的Chandy-Lamport</strong>，记录所有输入的offset和各个算子状态，依赖 rewinding source 从而<strong>不需要存储 channel 的状态</strong>。这在存在聚合逻辑的情况下可以<strong>节省大量的存储空间</strong>。</p>
+<p>最后做恢复，恢复就是把数据源的位置重新设定，然后每一个算子都从检查点恢复状态。</p>
+<h3 id="flink-的分布式快照方法">
+  Flink 的分布式快照方法
+  <a class="anchor" href="#flink-%e7%9a%84%e5%88%86%e5%b8%83%e5%bc%8f%e5%bf%ab%e7%85%a7%e6%96%b9%e6%b3%95">#</a>
+</h3>
+<p>首先在源数据流里插入<strong>Checkpoint barrier</strong>，也就是上文提到的<strong>Chandy-Lamport算法里的marker message</strong>，不同的Checkpoint barrier会把流自然地切分多个段，每个段都包含了Checkpoint的数据；</p>
+<p>Flink 里有一个<strong>全局的 Coordinator</strong>，它不像 Chandy-Lamport 对任意一个进程都可以发起快照，这个集中式的 Coordinator会把 Checkpoint barrier 注入到每个 source 里，然后启动快照。</p>
+<p>当每个节点收到 barrier 后，因为 Flink 里面它不存储 Channel state，所以它<strong>只需存储本地的状态</strong>就好。</p>
+<p>在做完了Checkpoint 后，<strong>每个算子的每个并发都会向Coordinator发送一个确认消息</strong>，当所有任务的确认消息都被Checkpoint Coordinator接收，快照就结束了。</p>
+<h1 id="实践">
+  实践
+  <a class="anchor" href="#%e5%ae%9e%e8%b7%b5">#</a>
+</h1>
+<h3 id="api-2-3">
+  API [2] [3]
+  <a class="anchor" href="#api-2-3">#</a>
+</h3>
+<ul>
+<li>默认不开启 checkpoint</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-Java" data-lang="Java"><span style="display:flex;"><span>StreamExecutionEnvironment env <span style="color:#f92672">=</span> StreamExecutionEnvironment.<span style="color:#a6e22e">getExecutionEnvironment</span>();
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// start a checkpoint every 1000 ms</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">enableCheckpointing</span>(1000);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// advanced options:</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// set mode to exactly-once (this is the default)</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">getCheckpointConfig</span>().<span style="color:#a6e22e">setCheckpointingMode</span>(CheckpointingMode.<span style="color:#a6e22e">EXACTLY_ONCE</span>);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// checkpoints have to complete within one minute, or are discarded</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">getCheckpointConfig</span>().<span style="color:#a6e22e">setCheckpointTimeout</span>(60000);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// make sure 500 ms of progress happen between checkpoints</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">getCheckpointConfig</span>().<span style="color:#a6e22e">setMinPauseBetweenCheckpoints</span>(500);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// allow only one checkpoint to be in progress at the same time</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">getCheckpointConfig</span>().<span style="color:#a6e22e">setMaxConcurrentCheckpoints</span>(1);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// enable externalized checkpoints which are retained after job cancellation</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">getCheckpointConfig</span>().<span style="color:#a6e22e">enableExternalizedCheckpoints</span>(ExternalizedCheckpointCleanup.<span style="color:#a6e22e">RETAIN_ON_CANCELLATION</span>);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// This determines if a task will be failed if an error occurs in the execution of the task’s checkpoint procedure.</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">getCheckpointConfig</span>().<span style="color:#a6e22e">setFailOnCheckpointingErrors</span>(<span style="color:#66d9ef">true</span>);
+</span></span></code></pre></div><div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-Java" data-lang="Java"><span style="display:flex;"><span>StreamExecutionEnvironment env <span style="color:#f92672">=</span> StreamExecutionEnvironment.<span style="color:#a6e22e">getExecutionEnvironment</span>();
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 每 60s 做一次 checkpoint</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">enableCheckpointing</span>(60000);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 高级配置：</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// checkpoint 语义设置为 EXACTLY_ONCE，这是默认语义</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">getCheckpointConfig</span>().<span style="color:#a6e22e">setCheckpointingMode</span>(CheckpointingMode.<span style="color:#a6e22e">EXACTLY_ONCE</span>);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 两次 checkpoint 的间隔时间至少为 1 s，默认是 0，立即进行下一次 checkpoint</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">getCheckpointConfig</span>().<span style="color:#a6e22e">setMinPauseBetweenCheckpoints</span>(1000);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// checkpoint 必须在 60s 内结束，否则被丢弃，默认是 10 分钟</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">getCheckpointConfig</span>().<span style="color:#a6e22e">setCheckpointTimeout</span>(60000);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 同一时间只能允许有一个 checkpoint</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">getCheckpointConfig</span>().<span style="color:#a6e22e">setMaxConcurrentCheckpoints</span>(1);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 最多允许 checkpoint 失败 3 次</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">getCheckpointConfig</span>().<span style="color:#a6e22e">setTolerableCheckpointFailureNumber</span>(3);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 当 Flink 任务取消时，保留外部保存的 checkpoint 信息</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">getCheckpointConfig</span>().<span style="color:#a6e22e">enableExternalizedCheckpoints</span>(ExternalizedCheckpointCleanup.<span style="color:#a6e22e">RETAIN_ON_CANCELLATION</span>);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 当有较新的 Savepoint 时，作业也会从 Checkpoint 处恢复</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">getCheckpointConfig</span>().<span style="color:#a6e22e">setPreferCheckpointForRecovery</span>(<span style="color:#66d9ef">true</span>);
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 允许实验性的功能：非对齐的 checkpoint，以提升性能</span>
+</span></span><span style="display:flex;"><span>env.<span style="color:#a6e22e">getCheckpointConfig</span>().<span style="color:#a6e22e">enableUnalignedCheckpoints</span>();
+</span></span></code></pre></div><h3 id="使用经验4n-ai">
+  使用经验[4][N AI]
+  <a class="anchor" href="#%e4%bd%bf%e7%94%a8%e7%bb%8f%e9%aa%8c4n-ai">#</a>
+</h3>
+<ol>
+<li>当 Checkpoint 时间比设置的间隔时间长时，可以设置 Checkpoint 间最小时间间隔。这样不会立即进行下一次 Checkpoint，从而减少系统在 Checkpoint 方面的资源消耗，确保任务计算资源的充足。</li>
+<li>如果 Flink 状态很大，在恢复时需要从远程存储读取状态，状态文件过大可能导致任务恢复很慢，浪费时间在网络传输方面。建议开启 Flink Task 本地状态恢复，加快状态恢复速度。</li>
+<li>可以增加 Checkpoint 保存数，以便在最新的 Checkpoint 恢复失败时回滚到之前的 Checkpoint 进行恢复。</li>
+<li>建议设置的 Checkpoint 间隔时间大于完成时间。</li>
+</ol>
+<h1 id="参考">
+  参考
+  <a class="anchor" href="#%e5%8f%82%e8%80%83">#</a>
+</h1>
+<ol>
+<li>尚硅谷 flink(Java) - bilibili
+《尚硅谷大数据技术之flink（java）》 第 10 章 容错机制</li>
+<li><a href="https://blog.csdn.net/xc_zhou/article/details/124898733">[1143]Flink的Checkpoint和Savepoint</a></li>
+<li><a href="https://www.shuzhiduo.com/A/xl56qQM9Jr/">Flink Checkpoint 参数详解</a></li>
+<li><a href="https://zhuanlan.zhihu.com/p/112876846">有赞实时任务优化：Flink Checkpoint 异常解析与应用实践</a></li>
+<li><a href="https://developer.aliyun.com/learning/course/58/detail/1071">课时5: 《 Fault-tolerance in Flink》</a>  阿里云  《Apache Flink 入门》 ***</li>
+<li><a href="https://zhuanlan.zhihu.com/p/43536305">(十)简单解释: 分布式数据流的异步快照(Flink的核心)</a> 原理 - aws SDE - 未 ***</li>
+<li><a href="https://xie.infoq.cn/article/f89ea4c1e06004f617b7ae0a7">基于 Log 的通用增量 Checkpoint</a>  未  阿里</li>
+</ol>
+</article>
+ 
+      
+
+      <footer class="book-footer">
+        
+  <div class="flex flex-wrap justify-between">
+
+
+
+
+
+</div>
+
+
+
+  <script>(function(){function e(e){const t=window.getSelection(),n=document.createRange();n.selectNodeContents(e),t.removeAllRanges(),t.addRange(n)}document.querySelectorAll("pre code").forEach(t=>{t.addEventListener("click",function(){if(window.getSelection().toString())return;e(t.parentElement),navigator.clipboard&&navigator.clipboard.writeText(t.parentElement.textContent)})})})()</script>
+
+
+ 
+        
+      </footer>
+
+      
+  
+  <div class="book-comments">
+
+</div>
+  
+ 
+
+      <label for="menu-control" class="hidden book-menu-overlay"></label>
+    </div>
+
+    
+    <aside class="book-toc">
+      <div class="book-toc-content">
+        
+  
+<nav id="TableOfContents">
+  <ul>
+    <li><a href="#原理-1">原理 [1]</a>
+      <ul>
+        <li>
+          <ul>
+            <li><a href="#checkpoint的保存">CheckPoint的保存</a></li>
+            <li><a href="#从checkpoint恢复状态">从CheckPoint恢复状态</a></li>
+            <li><a href="#checkpoint-算法">CheckPoint 算法</a></li>
+          </ul>
+        </li>
+      </ul>
+    </li>
+    <li><a href="#原理-5">原理 [5]</a>
+      <ul>
+        <li>
+          <ul>
+            <li><a href="#分布式场景的状态容错">分布式场景的状态容错</a></li>
+            <li><a href="#flink-的分布式快照方法">Flink 的分布式快照方法</a></li>
+          </ul>
+        </li>
+      </ul>
+    </li>
+    <li><a href="#实践">实践</a>
+      <ul>
+        <li>
+          <ul>
+            <li><a href="#api-2-3">API [2] [3]</a></li>
+            <li><a href="#使用经验4n-ai">使用经验[4][N AI]</a></li>
+          </ul>
+        </li>
+      </ul>
+    </li>
+    <li><a href="#参考">参考</a></li>
+  </ul>
+</nav>
+
+
+ 
+      </div>
+    </aside>
+    
+  </main>
+
+  
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
